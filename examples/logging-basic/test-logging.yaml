@@ -1,0 +1,4 @@
+logging:
+  level: "debug"
+  format: "console"  
+  output: "stdout"
