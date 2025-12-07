@@ -1,0 +1,7 @@
+environment: test
+server:
+  port: 50052
+nats:
+  url: "nats://localhost:4222"
+logging:
+  level: "error"

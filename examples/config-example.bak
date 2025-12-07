@@ -1,0 +1,104 @@
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"upm-simple/pkg/config"
+)
+
+func main() {
+	fmt.Println("Configuration Framework Example")
+
+	// Determine environment
+	env := os.Getenv("UPM_ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Load configuration
+	cfg, err := config.LoadConfig(env)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	fmt.Printf("Environment: %s\n", cfg.Environment)
+	fmt.Printf("Server: %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	fmt.Printf("NATS URL: %s\n", cfg.NATS.URL)
+	fmt.Printf("Log Level: %s\n", cfg.Logging.Level)
+
+	// Create loader for watching
+	loader := config.NewLoader()
+	if cfg, err := loader.Load(); err == nil {
+		fmt.Printf("Config loaded successfully from loader\n")
+		_ = cfg // Use cfg if needed
+	}
+
+	// Watch for config changes (only if config file exists)
+	updates := loader.Watch()
+	if updates == nil {
+		fmt.Println("No config file to watch, using defaults")
+		// Just wait for signal
+		waitForSignal()
+		return
+	}
+
+	fmt.Println("Watching for configuration changes...")
+	fmt.Println("Press Ctrl+C to exit")
+
+	// Handle updates and signals
+	handleUpdates(updates)
+}
+
+func waitForSignal() {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	fmt.Println("Press Ctrl+C to exit")
+	<-sigs
+	fmt.Println("Shutting down...")
+}
+
+func handleUpdates(updates <-chan config.ConfigUpdate) {
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case update, ok := <-updates:
+			if !ok {
+				fmt.Println("Config update channel closed")
+				return
+			}
+
+			if update.Error != nil {
+				fmt.Printf("Config update error: %v\n", update.Error)
+				continue
+			}
+
+			if update.Config == nil {
+				fmt.Println("Config update received but config is nil")
+				continue
+			}
+
+			fmt.Println("Configuration updated successfully!")
+			fmt.Printf("New log level: %s\n", update.Config.Logging.Level)
+			fmt.Printf("New server port: %d\n", update.Config.Server.Port)
+
+		case sig := <-sigs:
+			fmt.Printf("Received signal: %v\n", sig)
+			fmt.Println("Shutting down...")
+			return
+
+		case <-time.After(30 * time.Second):
+			fmt.Println("Still watching for changes...")
+		}
+	}
+}
